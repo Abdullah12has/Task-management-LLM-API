@@ -75,7 +75,7 @@ PROJECT_SCHEMA = {
             "format": "uuid"  # Category ID must be in UUID format
         }
     },
-    "required": ["title", "team_id", "category_id"]  # Required fields
+    "required": ["title", "team_id"]
 }
 
 # USER_SCHEMA: Defines the schema for a user object.
