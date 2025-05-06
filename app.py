@@ -19,6 +19,7 @@ from routes.task_routes import task_bp
 from routes.team_routes import team_bp
 from routes.user_routes import user_bp
 from blueprints.entry_point import entry_bp
+from flask_cors import CORS
 
 
 def create_app():
@@ -31,6 +32,7 @@ def create_app():
         Flask app instance
     """
     app = Flask(__name__)
+    CORS(app)  # Enable Cross-Origin Resource Sharing (CORS) for all routes
     # Application configuration
     app.config["JWT_SECRET_KEY"] = os.environ.get("JWT_SECRET_KEY", "super-secret")  # Secret key for JWT token encoding (change for production)
     app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(
@@ -212,4 +214,4 @@ if __name__ == "__main__":
     in debug mode for testing and development.
     """
     app = create_app()
-    app.run(debug=True, use_reloader=True)
+    app.run(debug=True, use_reloader=True, port=8080)
