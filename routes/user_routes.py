@@ -306,8 +306,8 @@ def delete_user(user_id):
         return jsonify(response), 500
 
 @user_bp.route("/", methods=["GET"])
-@jwt_required()
-@cache.cached(timeout=200, key_prefix=lambda: f"all_users_{get_jwt_identity()}")
+# @jwt_required()
+@cache.cached(timeout=200, key_prefix=lambda: f"all_users")
 def fetch_users():
     """
     Fetch all users from the database with caching enabled.
