@@ -1,63 +1,89 @@
 "use client";
-import React, { useEffect, useState } from "react";
+import React, { JSX, useState } from "react";
 import { Sidebar, SidebarBody, SidebarLink } from "./ui/sidebar";
 import {
     IconArrowLeft,
     IconBrandTabler,
     IconSettings,
-    IconUserBolt, Icon3dRotate
+    IconUserBolt,
+    Icon3dRotate
 } from "@tabler/icons-react";
 import { motion } from "motion/react";
 import { cn } from "@/lib/utils";
-import axios from "axios";
+import LoginForm from "./custom/loginBox";
+import UserGrid from "./custom/userBox";
 
+// New component imports for dashboard sections
+// import HomeComponent from "./dashboard/HomeComponent";
+// import ProjectsComponent from "./dashboard/ProjectsComponent";
+// import TasksComponent from "./dashboard/TasksComponent";
+// import TeamComponent from "./dashboard/TeamComponent";
 
-export const dynamic = 'force-dynamic'
+export const dynamic = 'force-dynamic';
+type ComponentType = "login" | "users" | "projects" | "tasks" | "team";
+interface NavLink {
+    label: string;
+    id: ComponentType;
+    icon: JSX.Element;
+}
+interface Links {
+    id: ComponentType;
+    label: string;
+    icon: JSX.Element;
+    href: string;
+    active?: boolean; 
+}
+
 
 export function SidebarDemo() {
 
 
+    const [activeComponent, setActiveComponent] = useState<ComponentType>("users");
+    const [open, setOpen] = useState(false);
 
-
-    const links = [
+    // Updated links with onClick handlers
+    const links: NavLink[] = [
         {
-            label: "Home",
-            href: "/",
+            label: "Login",
+            id: "login",
             icon: (
                 <IconBrandTabler className="h-5 w-5 shrink-0 text-neutral-700 dark:text-neutral-200" />
             ),
-
         },
         {
             label: "Users",
-            href: "#",
+            id: "users",
             icon: (
                 <IconUserBolt className="h-5 w-5 shrink-0 text-neutral-700 dark:text-neutral-200" />
             ),
         },
         {
             label: "Projects",
-            href: "#",
+            id: "projects",
             icon: (
                 <IconSettings className="h-5 w-5 shrink-0 text-neutral-700 dark:text-neutral-200" />
             ),
         },
         {
             label: "Tasks",
-            href: "#",
+            id: "tasks",
             icon: (
                 <IconArrowLeft className="h-5 w-5 shrink-0 text-neutral-700 dark:text-neutral-200" />
             ),
         },
         {
             label: "Team",
-            href: "#",
+            id: "team",
             icon: (
                 <Icon3dRotate className="h-5 w-5 shrink-0 text-neutral-700 dark:text-neutral-200" />
             ),
         },
     ];
-    const [open, setOpen] = useState(false);
+    // Handle navigation click
+    const handleNavClick = (id: ComponentType) => {
+        setActiveComponent(id);
+    };
+
     return (
         <div
             className={cn(
@@ -71,7 +97,15 @@ export function SidebarDemo() {
                         {open ? <Logo /> : <LogoIcon />}
                         <div className="mt-8 flex flex-col gap-2">
                             {links.map((link, idx) => (
-                                <SidebarLink key={idx} link={link} />
+                                <div key={idx} onClick={() => handleNavClick(link.id)}>
+                                    <SidebarLink
+                                        link={{
+                                            ...link,
+                                            href: "#",
+                                        }}
+                                        // active={activeComponent === link.id} 
+                                    />
+                                </div>
                             ))}
                         </div>
                     </div>
@@ -94,14 +128,15 @@ export function SidebarDemo() {
                     </div>
                 </SidebarBody>
             </Sidebar>
-            <Dashboard />
+            <Dashboard activeComponent={activeComponent} />
         </div>
     );
 }
+
 export const Logo = () => {
     return (
         <a
-            href="#"
+            href="/"
             className="relative z-20 flex items-center space-x-2 py-1 text-sm font-normal text-black"
         >
             <div className="h-5 w-6 shrink-0 rounded-tl-lg rounded-tr-sm rounded-br-lg rounded-bl-sm bg-black dark:bg-white" />
@@ -110,15 +145,16 @@ export const Logo = () => {
                 animate={{ opacity: 1 }}
                 className="font-medium whitespace-pre text-black dark:text-white"
             >
-                Acet Labs
+                Task Management
             </motion.span>
         </a>
     );
 };
+
 export const LogoIcon = () => {
     return (
         <a
-            href="#"
+            href="/"
             className="relative z-20 flex items-center space-x-2 py-1 text-sm font-normal text-black"
         >
             <div className="h-5 w-6 shrink-0 rounded-tl-lg rounded-tr-sm rounded-br-lg rounded-bl-sm bg-black dark:bg-white" />
@@ -126,74 +162,32 @@ export const LogoIcon = () => {
     );
 };
 
-const Dashboard = () => {
-    const [posts, setPosts] = useState(null);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState(null);
+interface DashboardProps {
+    activeComponent: "login" | "users" | "projects" | "tasks" | "team";
+}
 
-    useEffect(() => {
-        const fetchData = async () => {
-            try {
-                setLoading(true);
-                console.log("data fetching");
-                const response = await fetch(process.env.NEXT_PUBLIC_BACKEND_URL+"/users" || "http://localhost:8080/users");
-
-                if (!response.ok) {
-                    throw new Error(`Server responded with status: ${response.status}`);
-                }
-
-                const data = await response.json();
-                console.log(data);
-                setPosts(data);
-            } catch (error) {
-                console.error('Error fetching data:', error);
-
-            } finally {
-                setLoading(false);
-            }
-        };
-
-        fetchData();
-    }, []);
+const Dashboard = ({ activeComponent }: DashboardProps) => {
+    // Render the appropriate component based on the active component state
+    const renderComponent = () => {
+        switch (activeComponent) {
+            case "login":
+                return <LoginForm/>;
+            case "users":
+                return <UserGrid />;
+            case "projects":
+                return <div> <p>hello1 </p></div>;
+            case "tasks":
+                return <div> <p>hello 2</p></div>;
+            case "team":
+                return <div> <p>hello 3</p></div>;
+            default:
+                return <div> <p>hello 4</p></div>;
+        }
+    };
 
     return (
-        <div className="flex flex-1">
-            <div className="flex h-full w-full flex-1 flex-col gap-2 rounded-tl-2xl border border-neutral-200 bg-white p-2 md:p-10 dark:border-neutral-700 dark:bg-neutral-900">
-                {error && (
-                    <div className="p-4 text-red-500 bg-red-100 rounded-lg dark:bg-red-900 dark:text-red-200">
-                        Error: {error}
-                    </div>
-                )}
-
-                {loading ? (
-                    <>
-                        <div className="flex gap-2">
-                            {[...new Array(4)].map((_, idx) => (
-                                <div
-                                    key={"first-array-demo-1" + idx}
-                                    className="h-20 w-full animate-pulse rounded-lg bg-gray-100 dark:bg-neutral-800"
-                                ></div>
-                            ))}
-                        </div>
-                        <div className="flex flex-1 gap-2">
-                            {[...new Array(2)].map((_, idx) => (
-                                <div
-                                    key={"second-array-demo-1" + idx}
-                                    className="h-full w-full animate-pulse rounded-lg bg-gray-100 dark:bg-neutral-800"
-                                ></div>
-                            ))}
-                        </div>
-                    </>
-                ) : (
-                    <div className="p-4">
-                        {posts && (
-                            <pre className="overflow-auto max-h-96 p-4 bg-gray-50 rounded-lg dark:bg-neutral-800">
-                                {JSON.stringify(posts, null, 2)}
-                            </pre>
-                        )}
-                    </div>
-                )}
-            </div>
+        <div className="flex flex-1 p-6 overflow-y-auto">
+            {renderComponent()}
         </div>
     );
 };

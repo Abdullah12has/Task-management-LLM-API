@@ -1,0 +1,1967 @@
+from flask import Blueprint, jsonify, request, url_for
+from flask_jwt_extended import get_jwt_identity, jwt_required
+from extentions.extensions import cache
+from models import User
+from schemas.schemas import PROJECT_SCHEMA, PROJECT_UPDATE_SCHEMA
+from services.project_services import ProjectService
+from utils.error_handlers import handle_error, handle_exception
+from utils.hypermedia.project_hypermedia import add_project_hypermedia_links, generate_projects_collection_links
+from validators.validators import validate_json
+
+project_bp = Blueprint("project_routes", __name__, url_prefix="/projects")
+
+@project_bp.errorhandler(400)
+def bad_request(error):
+    response = {
+        "error": "Bad Request", 
+        "message": str(error),
+        "_links": generate_projects_collection_links()
+    }
+    return jsonify(response), 400
+
+@project_bp.errorhandler(404)
+def not_found(error):
+    response = {
+        "error": "Not Found", 
+        "message": str(error),
+        "_links": generate_projects_collection_links()
+    }
+    return jsonify(response), 404
+
+@project_bp.errorhandler(500)
+def internal_error(error):
+    response = {
+        "error": "Internal Server Error", 
+        "message": str(error),
+        "_links": generate_projects_collection_links()
+    }
+    return jsonify(response), 500
+
+@project_bp.route("/", methods=["POST"])
+@jwt_required()
+@validate_json(PROJECT_SCHEMA)
+def create_project():
+    """Creates a new project."""
+    try:
+        current_user_id = get_jwt_identity()
+        current_user = User.query.get(current_user_id)
+        if not current_user:
+            response = {
+                "error": "User not found", 
+                "message": "Current user not found",
+                "_links": generate_projects_collection_links()
+            }
+            return jsonify(response), 404
+        data = request.get_json()
+        new_project = ProjectService.create_project(data)
+        cache_key = f"projects_{current_user_id}"
+        cache.delete(cache_key)
+        project_dict = new_project.to_dict()
+        project_dict = add_project_hypermedia_links(project_dict)
+        
+        # Add location header for created resource
+        response = jsonify(project_dict)
+        response.headers['Location'] = url_for('project_routes.get_project', project_id=project_dict['team_id'], _external=True)
+        return response, 201
+    except ValueError as e:
+        response = {
+            "error": "Invalid data", 
+            "message": str(e),
+            "_links": generate_projects_collection_links()
+        }
+        return jsonify(response), 400
+    except Exception as e:
+        response = {
+            "error": "Internal server error", 
+            "message": str(e),
+            "_links": generate_projects_collection_links()
+        }
+        return jsonify(response), 500
+
+@project_bp.route("/<project_id>", methods=["GET"])
+@jwt_required()
+@cache.cached(
+    timeout=300,
+    key_prefix=lambda: f"project_{get_jwt_identity()}_{request.view_args['project_id']}",
+)
+def get_project(project_id):
+    """Retrieves a specific project by ID."""
+    try:
+        current_user_id = get_jwt_identity()
+        current_user = User.query.get(current_user_id)
+        if not current_user:
+            response = {
+                "error": "User not found", 
+                "message": "Current user not found",
+                "_links": generate_projects_collection_links()
+            }
+            return jsonify(response), 404
+        project = ProjectService.get_project(project_id)
+        if not project:
+            response = {
+                "error": "Not found", 
+                "message": "Project not found",
+                "_links": generate_projects_collection_links()
+            }
+            return jsonify(response), 404
+        project_dict = project.to_dict()
+        project_dict = add_project_hypermedia_links(project_dict)
+        return jsonify(project_dict), 200
+    except Exception as e:
+        response = {
+            "error": "Internal server error", 
+            "message": str(e),
+            "_links": generate_projects_collection_links()
+        }
+        return jsonify(response), 500
+
+@project_bp.route("/<project_id>", methods=["PUT"])
+@jwt_required()
+@validate_json(PROJECT_UPDATE_SCHEMA)
+def update_project(project_id):
+    """Updates an existing project."""
+    try:
+        current_user_id = get_jwt_identity()
+        current_user = User.query.get(current_user_id)
+        if not current_user:
+            response = {
+                "error": "User not found", 
+                "message": "Current user not found",
+                "_links": generate_projects_collection_links()
+            }
+            return jsonify(response), 404
+        project = ProjectService.get_project(project_id)
+        if not project:
+            response = {
+                "error": "Not found", 
+                "message": "Project not found",
+                "_links": generate_projects_collection_links()
+            }
+            return jsonify(response), 404
+        data = request.get_json()
+        updated_project = ProjectService.update_project(project, data)
+        cache_key = f"project_{current_user_id}_{project_id}"
+        cache.delete(cache_key)
+        all_projects_cache_key = f"projects_{current_user_id}"
+        cache.delete(all_projects_cache_key)
+        project_dict = updated_project.to_dict()
+        project_dict = add_project_hypermedia_links(project_dict)
+        return jsonify(project_dict), 200
+    except ValueError as e:
+        response = {
+            "error": "Invalid data", 
+            "message": str(e),
+            "_links": generate_projects_collection_links()
+        }
+        return jsonify(response), 400
+    except Exception as e:
+        response = {
+            "error": "Internal server error", 
+            "message": str(e),
+            "_links": generate_projects_collection_links()
+        }
+        return jsonify(response), 500
+
+@project_bp.route("/<project_id>", methods=["DELETE"])
+@jwt_required()
+def delete_project(project_id):
+    """Deletes a project."""
+    try:
+        current_user_id = get_jwt_identity()
+        current_user = User.query.get(current_user_id)
+        if not current_user:
+            response = {
+                "error": "User not found", 
+                "message": "Current user not found",
+                "_links": generate_projects_collection_links()
+            }
+            return jsonify(response), 404
+        project = ProjectService.get_project(project_id)
+        if not project:
+            response = {
+                "error": "Not found", 
+                "message": "Project not found",
+                "_links": generate_projects_collection_links()
+            }
+            return jsonify(response), 404
+        ProjectService.delete_project(project)
+        project_cache_key = f"project_{current_user_id}_{project_id}"
+        cache.delete(project_cache_key)
+        all_projects_cache_key = f"projects_{current_user_id}"
+        cache.delete(all_projects_cache_key)
+        response = {
+            "message": "Project deleted successfully",
+            "_links": generate_projects_collection_links()
+        }
+        return jsonify(response), 200
+    except Exception as e:
+        response = {
+            "error": "Internal server error", 
+            "message": str(e),
+            "_links": generate_projects_collection_links()
+        }
+        return jsonify(response), 500
+
+@project_bp.route("/", methods=["GET"])
+@jwt_required()
+@cache.cached(timeout=300, key_prefix=lambda: f"projects_{get_jwt_identity()}")
+def get_all_projects():
+    """Fetch all projects."""
+    try:
+        current_user_id = get_jwt_identity()
+        current_user = User.query.get(current_user_id)
+        if not current_user:
+            response = {
+                "error": "User not found", 
+                "message": "Current user not found",
+                "_links": generate_projects_collection_links()
+            }
+            return jsonify(response), 404
+            
+        # Get any filter parameters
+        filters = {
+            "status": request.args.get("status"),
+            "priority": request.args.get("priority"),
+        }
+        filters = {k: v for k, v in filters.items() if v is not None}
+            
+        projects = ProjectService.fetch_all_projects()
+        
+        response = {
+            "projects": [],
+            "_links": generate_projects_collection_links(filters)
+        }
+        
+        if isinstance(projects, list):
+            for project in projects:
+                if isinstance(project, dict) and "id" in project:
+                    response["projects"].append(add_project_hypermedia_links(project))
+                else:
+                    response["projects"].append(project)
+        else:
+            # Handle edge case where projects might not be a list
+            response["error"] = "Unexpected response format"
+            
+        return jsonify(response), 200
+    except Exception as e:
+        response = {
+            "error": "Internal server error", 
+            "message": str(e),
+            "_links": generate_projects_collection_links()
+        }
+        return jsonify(response), 500
+
+
+from flask import Blueprint, jsonify, request, url_for
+from flask_jwt_extended import get_jwt_identity, jwt_required
+from extentions.extensions import cache
+from schemas.schemas import TASK_SCHEMA, TASK_UPDATE_SCHEMA
+from services.task_service import TaskService
+from utils.hypermedia.task_hypermedia import add_task_hypermedia_links, generate_tasks_collection_links
+from validators.validators import validate_json
+
+task_bp = Blueprint("task_routes", __name__, url_prefix="/tasks")
+
+@task_bp.errorhandler(400)
+def bad_request(error):
+    response = {
+        "error": "Bad Request", 
+        "message": str(error),
+        "_links": generate_tasks_collection_links()
+    }
+    return jsonify(response), 400
+
+@task_bp.errorhandler(404)
+def not_found(error):
+    response = {
+        "error": "Not Found", 
+        "message": str(error),
+        "_links": generate_tasks_collection_links()
+    }
+    return jsonify(response), 404
+
+@task_bp.errorhandler(500)
+def internal_error(error):
+    response = {
+        "error": "Internal Server Error", 
+        "message": str(error),
+        "_links": generate_tasks_collection_links()
+    }
+    return jsonify(response), 500
+
+@task_bp.route("/", methods=["POST"])
+@jwt_required()
+@validate_json(TASK_SCHEMA)
+def create_task():
+    """
+    Create a new task.
+    """
+    try:
+        user_id = get_jwt_identity()
+        if not user_id:
+            response = {
+                "error": "User not authenticated",
+                "_links": generate_tasks_collection_links()
+            }
+            return jsonify(response), 401
+        data = request.get_json()
+        new_task = TaskService.create_task(data, user_id)
+        
+        # Ensure proper hypermedia links
+        if isinstance(new_task, dict) and "task_id" in new_task:
+            new_task = add_task_hypermedia_links(new_task)
+            
+            # Add location header for created resource
+            response = jsonify(new_task)
+            response.headers['Location'] = url_for('task_routes.task_operations', task_id=new_task['task_id'], _external=True)
+            return response, 201
+        else:
+            response = {
+                "error": "Task creation failed",
+                "message": "Unable to create task with the provided data",
+                "_links": generate_tasks_collection_links()
+            }
+            return jsonify(response), 500
+    except ValueError as e:
+        response = {
+            "error": "Invalid data", 
+            "message": str(e),
+            "_links": generate_tasks_collection_links()
+        }
+        return jsonify(response), 400
+    except Exception as e:
+        response = {
+            "error": "Internal server error", 
+            "message": str(e),
+            "_links": generate_tasks_collection_links()
+        }
+        return jsonify(response), 500
+
+@task_bp.route("/<task_id>", methods=["GET", "PUT", "DELETE"])
+@jwt_required()
+def task_operations(task_id):
+    """
+    Operations for a single task: GET, PUT, DELETE.
+    """
+    try:
+        user_id = get_jwt_identity()
+        if not user_id:
+            response = {
+                "error": "User not authenticated",
+                "_links": generate_tasks_collection_links()
+            }
+            return jsonify(response), 401
+
+        if request.method == "GET":
+            task = TaskService.get_task(task_id)
+            if task is None:
+                response = {
+                    "error": "Not Found",
+                    "message": f"Task with ID {task_id} not found",
+                    "_links": generate_tasks_collection_links()
+                }
+                return jsonify(response), 404
+                
+            if isinstance(task, dict) and "id" in task:
+                task = add_task_hypermedia_links(task)
+            return jsonify(task), 200
+
+        if request.method == "DELETE":
+            # Check if task exists first
+            task = TaskService.get_task(task_id)
+            if task is None:
+                response = {
+                    "error": "Not Found",
+                    "message": f"Task with ID {task_id} not found",
+                    "_links": generate_tasks_collection_links()
+                }
+                return jsonify(response), 404
+                
+            TaskService.delete_task(task_id)
+            
+            # Clear cache if implemented
+            task_cache_key = f"task_{user_id}_{task_id}"
+            if hasattr(cache, 'delete'):
+                cache.delete(task_cache_key)
+                all_tasks_cache_key = f"tasks_{user_id}"
+                cache.delete(all_tasks_cache_key)
+                
+            response = {
+                "message": "Task deleted successfully",
+                "_links": generate_tasks_collection_links()
+            }
+            return jsonify(response), 200
+
+        if request.method == "PUT":
+            # Check if task exists first
+            task = TaskService.get_task(task_id)
+            if task is None:
+                response = {
+                    "error": "Not Found",
+                    "message": f"Task with ID {task_id} not found",
+                    "_links": generate_tasks_collection_links()
+                }
+                return jsonify(response), 404
+                
+            data = request.get_json()
+            if not data:
+                response = {
+                    "error": "No data provided",
+                    "_links": generate_tasks_collection_links()
+                }
+                return jsonify(response), 400
+                
+            # Validate the data
+            validate_json(TASK_UPDATE_SCHEMA)(lambda: None)()
+            
+            updated_task = TaskService.update_task(task_id, data, user_id)
+            
+            # Clear cache if implemented
+            task_cache_key = f"task_{user_id}_{task_id}"
+            if hasattr(cache, 'delete'):
+                cache.delete(task_cache_key)
+                all_tasks_cache_key = f"tasks_{user_id}"
+                cache.delete(all_tasks_cache_key)
+                
+            if isinstance(updated_task, dict) and "id" in updated_task:
+                updated_task = add_task_hypermedia_links(updated_task)
+            return jsonify(updated_task), 200
+
+    except ValueError as e:
+        response = {
+            "error": str(e),
+            "_links": generate_tasks_collection_links()
+        }
+        return jsonify(response), 404
+    except Exception as e:
+        response = {
+            "error": "Internal server error", 
+            "message": str(e),
+            "_links": generate_tasks_collection_links()
+        }
+        return jsonify(response), 500
+
+@task_bp.route("/", methods=["GET"])
+@jwt_required()
+@cache.cached(timeout=300, key_prefix=lambda: f"tasks_{get_jwt_identity()}")
+def get_tasks():
+    """
+    Get a list of tasks, possibly filtered.
+    """
+    try:
+        user_id = get_jwt_identity()
+        if not user_id:
+            response = {
+                "error": "User not authenticated",
+                "_links": generate_tasks_collection_links()
+            }
+            return jsonify(response), 401
+
+        filters = {
+            "project_id": request.args.get("project_id"),
+            "assignee_id": request.args.get("assignee_id"),
+            "status": request.args.get("status"),
+            "priority": request.args.get("priority"),
+        }
+        if filters["priority"] is not None:
+            try:
+                filters["priority"] = int(filters["priority"])
+            except ValueError:
+                response = {
+                    "error": "Invalid priority value",
+                    "_links": generate_tasks_collection_links()
+                }
+                return jsonify(response), 400
+        filters = {k: v for k, v in filters.items() if v is not None}
+        tasks = TaskService.get_tasks(filters)
+        
+        response = {
+            "tasks": [],
+            "_links": generate_tasks_collection_links(filters)
+        }
+        
+        if isinstance(tasks, list):
+            response["tasks"] = [add_task_hypermedia_links(task) for task in tasks if isinstance(task, dict) and "task_id" in task]
+        else:
+            # Handle edge case where tasks might not be a list
+            response["error"] = "Unexpected response format"
+            
+        return jsonify(response), 200
+    except ValueError as e:
+        response = {
+            "error": str(e),
+            "_links": generate_tasks_collection_links()
+        }
+        return jsonify(response), 400
+    except Exception as e:
+        response = {
+            "error": "Internal server error", 
+            "message": str(e),
+            "_links": generate_tasks_collection_links()
+        }
+        return jsonify(response), 500
+
+
+from flask import Blueprint, jsonify, request, url_for
+from flask_jwt_extended import get_jwt_identity, jwt_required
+from extentions.extensions import cache
+from schemas.schemas import TEAM_MEMBERSHIP_SCHEMA, TEAM_SCHEMA, TEAM_UPDATE_SCHEMA
+from services.team_services import TeamService
+from utils.hypermedia.team_hypermedia import (
+    generate_team_hypermedia_links,
+    generate_team_member_links,
+    generate_error_links
+)
+from validators.validators import validate_json
+
+team_bp = Blueprint("team_routes", __name__, url_prefix="/teams")
+
+@team_bp.errorhandler(400)
+def bad_request(error):
+    context = {"entity_type": "team"}
+    if request.view_args and "team_id" in request.view_args:
+        context["entity_id"] = request.view_args["team_id"]
+        if "user_id" in request.view_args:
+            context["entity_type"] = "team_member"
+            context["team_id"] = request.view_args["team_id"]
+            context["user_id"] = request.view_args["user_id"]
+    
+    response = {
+        "error": "Bad Request", 
+        "message": str(error),
+        "_links": generate_error_links(context)
+    }
+    return jsonify(response), 400
+
+@team_bp.errorhandler(404)
+def not_found(error):
+    context = {"entity_type": "team"}
+    if request.view_args and "team_id" in request.view_args:
+        context["entity_id"] = request.view_args["team_id"]
+        if "user_id" in request.view_args:
+            context["entity_type"] = "team_member"
+            context["team_id"] = request.view_args["team_id"]
+            context["user_id"] = request.view_args["user_id"]
+    
+    response = {
+        "error": "Not Found", 
+        "message": str(error),
+        "_links": generate_error_links(context)
+    }
+    return jsonify(response), 404
+
+@team_bp.errorhandler(500)
+def internal_error(error):
+    context = {"entity_type": "team"}
+    if request.view_args and "team_id" in request.view_args:
+        context["entity_id"] = request.view_args["team_id"]
+        if "user_id" in request.view_args:
+            context["entity_type"] = "team_member"
+            context["team_id"] = request.view_args["team_id"]
+            context["user_id"] = request.view_args["user_id"]
+    
+    response = {
+        "error": "Internal Server Error", 
+        "message": str(error),
+        "_links": generate_error_links(context)
+    }
+    return jsonify(response), 500
+
+@team_bp.route("/", methods=["GET"])
+@jwt_required()
+@cache.cached(timeout=200, key_prefix=lambda: f"team_all_{get_jwt_identity()}")
+def get_all_teams():
+    """
+    Retrieves all teams the authenticated user is a member of.
+
+    Returns:
+        - List of teams with their basic info and the user's role.
+        - HTTP Status Code: 200 (OK) on success.
+    """
+    result, status_code = TeamService.get_all_teams()
+    response = {
+        "teams": [],
+        "_links": generate_team_hypermedia_links()
+    }
+    if status_code == 200 and isinstance(result, list):
+        for team in result:
+            if isinstance(team, dict) and "id" in team:
+                team_with_links = dict(team)
+                team_with_links["_links"] = generate_team_hypermedia_links(team_id=str(team["id"]))
+                response["teams"].append(team_with_links)
+            else:
+                response["teams"].append(team)
+    else:
+        response["teams"] = result
+    return jsonify(response), status_code
+
+@team_bp.route("/", methods=["POST"])
+@jwt_required()
+@validate_json(TEAM_SCHEMA)
+def create_team():
+    """
+    Creates a new team. Only authorized users can create a team.
+
+    - **name**: The name of the team (required).
+    - **description**: A description of the team (optional).
+    - **lead_id**: The user ID of the team leader (required).
+
+    Returns:
+        - JSON representation of the newly created team.
+        - HTTP Status Code: 201 (Created) on success.
+        - HTTP Status Code: 500 (Internal Server Error) on failure.
+    """
+    user_id = get_jwt_identity()
+    data = request.get_json()
+    result, status_code = TeamService.create_team(user_id, data)
+    cache_key = f"team_all_{user_id}"
+    cache.delete(cache_key)
+    if status_code == 201 and isinstance(result, dict) and "id" in result:
+        result["_links"] = generate_team_hypermedia_links(team_id=str(result["id"]))
+    elif status_code != 201:
+        # Add hypermedia links to error responses
+        if isinstance(result, dict):
+            result["_links"] = generate_team_hypermedia_links()
+    return jsonify(result), status_code
+
+@team_bp.route("/<team_id>", methods=["GET"])
+@jwt_required()
+@cache.cached(
+    timeout=300, key_prefix=lambda: f"team_{get_jwt_identity()}_{request.view_args['team_id']}"
+)
+def get_team(team_id):
+    """
+    Retrieves details of a specific team by its ID.
+
+    Args:
+        - **team_id**: UUID of the team to retrieve.
+
+    Returns:
+        - JSON representation of the team if found.
+        - HTTP Status Code: 200 (OK) on success.
+        - HTTP Status Code: 404 (Not Found) if the team doesn't exist.
+    """
+    user_id = get_jwt_identity()
+    result, status_code = TeamService.get_team(user_id, team_id)
+    if status_code == 200 and isinstance(result, dict) and "id" in result:
+        result["_links"] = generate_team_hypermedia_links(team_id=str(team_id))
+    elif status_code != 200:
+        # Add hypermedia links to error responses
+        context = {"entity_type": "team", "entity_id": team_id}
+        if isinstance(result, dict):
+            result["_links"] = generate_error_links(context)
+    return jsonify(result), status_code
+
+@team_bp.route("/<team_id>", methods=["PUT"])
+@jwt_required()
+@validate_json(TEAM_UPDATE_SCHEMA)
+def update_team(team_id):
+    """
+    Updates an existing team's details.
+
+    Args:
+        - **team_id**: UUID of the team to update.
+
+    Request Body:
+        - **name**: The new name of the team (optional).
+        - **description**: The new description of the team (optional).
+        - **lead_id**: The new team leader's user ID (optional).
+
+    Returns:
+        - JSON representation of the updated team on success.
+        - HTTP Status Code: 200 (OK).
+        - HTTP Status Code: 404 (Not Found) if the team does not exist.
+        - HTTP Status Code: 400 (Bad Request) if invalid data is provided.
+    """
+    user_id = get_jwt_identity()
+    data = request.get_json()
+    result, status_code = TeamService.update_team(user_id, team_id, data)
+    cache_key = f"team_{user_id}_{team_id}"
+    cache.delete(cache_key)
+    all_teams_cache_key = f"team_all_{user_id}"
+    cache.delete(all_teams_cache_key)
+    if status_code == 200 and isinstance(result, dict) and "id" in result:
+        result["_links"] = generate_team_hypermedia_links(team_id=str(team_id))
+    elif status_code != 200:
+        # Add hypermedia links to error responses
+        context = {"entity_type": "team", "entity_id": team_id}
+        if isinstance(result, dict):
+            result["_links"] = generate_error_links(context)
+    return jsonify(result), status_code
+
+@team_bp.route("/<team_id>", methods=["DELETE"])
+@jwt_required()
+def delete_team(team_id):
+    """
+    Deletes a team by its ID.
+
+    Args:
+        - **team_id**: UUID of the team to delete.
+
+    Returns:
+        - Success message if team is deleted.
+        - HTTP Status Code: 200 (OK) on success.
+        - HTTP Status Code: 404 (Not Found) if the team does not exist.
+    """
+    user_id = get_jwt_identity()
+    result, status_code = TeamService.delete_team(user_id, team_id)
+    team_id_str = str(team_id)
+    cache_key = f"team_{user_id}_{team_id_str}"
+    cache.delete(cache_key)
+    all_teams_cache_key = f"team_all_{user_id}"
+    cache.delete(all_teams_cache_key)
+    team_members_cache_key = f"team_member_{user_id}_{team_id_str}"
+    cache.delete(team_members_cache_key)
+    if status_code == 200 and isinstance(result, dict):
+        result["_links"] = generate_team_hypermedia_links()
+    elif status_code != 200:
+        # Add hypermedia links to error responses
+        context = {"entity_type": "team", "entity_id": team_id}
+        if isinstance(result, dict):
+            result["_links"] = generate_error_links(context)
+    return jsonify(result), status_code
+
+@team_bp.route("/<team_id>/members", methods=["POST"])
+@jwt_required()
+@validate_json(TEAM_MEMBERSHIP_SCHEMA)
+def add_team_member(team_id):
+    """
+    Adds a user to a team with a specified role.
+
+    Args:
+        - **team_id**: UUID of the team.
+        - Request Body:
+            - **user_id**: The user ID to add to the team (required).
+            - **role**: The role the user will have in the team (required).
+
+    Returns:
+        - Success message if the user is added successfully.
+        - HTTP Status Code: 201 (Created) on success.
+        - HTTP Status Code: 400 (Bad Request) if the user is already a member of the team.
+        - HTTP Status Code: 500 (Internal Server Error) on failure.
+    """
+    current_user_id = get_jwt_identity()
+    data = request.get_json()
+    result, status_code = TeamService.add_team_member(current_user_id, team_id, data)
+    team_id_str = str(team_id)
+    cache_key = f"team_member_{current_user_id}_{team_id_str}"
+    cache.delete(cache_key)
+    team_cache_key = f"team_{current_user_id}_{team_id_str}"
+    cache.delete(team_cache_key)
+    
+    if status_code == 201 and isinstance(result, dict) and "user_id" in data:
+        user_id_str = str(data["user_id"])
+        result["_links"] = generate_team_member_links(team_id_str, user_id_str)
+    elif status_code != 201:
+        # Add hypermedia links to error responses
+        context = {
+            "entity_type": "team_member", 
+            "team_id": team_id,
+            "user_id": data.get("user_id") if isinstance(data, dict) and "user_id" in data else None
+        }
+        if isinstance(result, dict):
+            result["_links"] = generate_error_links(context)
+    return jsonify(result), status_code
+
+@team_bp.route("/<team_id>/members/<user_id>", methods=["GET"])
+@jwt_required()
+@cache.cached(
+    timeout=300, 
+    key_prefix=lambda: f"team_member_detail_{get_jwt_identity()}_{request.view_args['team_id']}_{request.view_args['user_id']}"
+)
+def get_team_member(team_id, user_id):
+    """
+    Retrieves details of a specific team member.
+
+    Args:
+        - **team_id**: UUID of the team.
+        - **user_id**: UUID of the user.
+
+    Returns:
+        - JSON representation of the team member including their role.
+        - HTTP Status Code: 200 (OK) on success.
+        - HTTP Status Code: 404 (Not Found) if the membership does not exist.
+    """
+    current_user_id = get_jwt_identity()
+    result, status_code = TeamService.get_team_member(current_user_id, team_id, user_id)
+    
+    if status_code == 200 and isinstance(result, dict):
+        team_id_str = str(team_id)
+        user_id_str = str(user_id)
+        result["_links"] = generate_team_member_links(team_id_str, user_id_str)
+    elif status_code != 200:
+        # Add hypermedia links to error responses
+        context = {
+            "entity_type": "team_member", 
+            "team_id": team_id,
+            "user_id": user_id
+        }
+        if isinstance(result, dict):
+            result["_links"] = generate_error_links(context)
+    return jsonify(result), status_code
+
+@team_bp.route("/<team_id>/members/<user_id>", methods=["PUT"])
+@jwt_required()
+@validate_json(TEAM_MEMBERSHIP_SCHEMA)
+def update_team_member(team_id, user_id):
+    """
+    Updates the role of a member in a team.
+
+    Args:
+        - **team_id**: UUID of the team.
+        - **user_id**: UUID of the user whose role will be updated.
+        - Request Body:
+            - **role**: The new role for the user (required).
+
+    Returns:
+        - Success message if the role is updated.
+        - HTTP Status Code: 200 (OK).
+        - HTTP Status Code: 404 (Not Found) if the membership does not exist.
+    """
+    current_user_id = get_jwt_identity()
+    data = request.get_json()
+    result, status_code = TeamService.update_team_member(current_user_id, team_id, user_id, data)
+    team_id_str = str(team_id)
+    user_id_str = str(user_id)
+    
+    cache_key = f"team_member_{current_user_id}_{team_id_str}"
+    cache.delete(cache_key)
+    member_detail_cache_key = f"team_member_detail_{current_user_id}_{team_id_str}_{user_id_str}"
+    cache.delete(member_detail_cache_key)
+    
+    if status_code == 200 and isinstance(result, dict):
+        result["_links"] = generate_team_member_links(team_id_str, user_id_str)
+    elif status_code != 200:
+        # Add hypermedia links to error responses
+        context = {
+            "entity_type": "team_member", 
+            "team_id": team_id,
+            "user_id": user_id
+        }
+        if isinstance(result, dict):
+            result["_links"] = generate_error_links(context)
+    return jsonify(result), status_code
+
+@team_bp.route("/<team_id>/members/<user_id>", methods=["DELETE"])
+@jwt_required()
+def remove_team_member(team_id, user_id):
+    """
+    Removes a user from a team.
+
+    Args:
+        - **team_id**: UUID of the team.
+        - **user_id**: UUID of the user to be removed from the team.
+
+    Returns:
+        - Success message if the user is removed successfully.
+        - HTTP Status Code: 200 (OK) on success.
+        - HTTP Status Code: 404 (Not Found) if the membership does not exist.
+    """
+    current_user_id = get_jwt_identity()
+    result, status_code = TeamService.remove_team_member(current_user_id, team_id, user_id)
+    team_id_str = str(team_id)
+    user_id_str = str(user_id)
+    
+    cache_key = f"team_member_{current_user_id}_{team_id_str}"
+    cache.delete(cache_key)
+    team_cache_key = f"team_{current_user_id}_{team_id_str}"
+    cache.delete(team_cache_key)
+    member_detail_cache_key = f"team_member_detail_{current_user_id}_{team_id_str}_{user_id_str}"
+    cache.delete(member_detail_cache_key)
+    
+    if status_code == 200 and isinstance(result, dict):
+        result["_links"] = generate_team_member_links(team_id_str)
+    elif status_code != 200:
+        # Add hypermedia links to error responses
+        context = {
+            "entity_type": "team_member", 
+            "team_id": team_id,
+            "user_id": user_id
+        }
+        if isinstance(result, dict):
+            result["_links"] = generate_error_links(context)
+    return jsonify(result), status_code
+
+@team_bp.route("/<team_id>/members", methods=["GET"])
+@jwt_required()
+@cache.cached(
+    timeout=300,
+    key_prefix=lambda: f"team_member_{get_jwt_identity()}_{request.view_args['team_id']}"
+)
+def get_team_members(team_id):
+    """
+    Retrieves all members of a specific team.
+
+    Args:
+        - **team_id**: UUID of the team whose members are to be retrieved.
+
+    Returns:
+        - List of members of the team, including their user IDs and roles.
+        - HTTP Status Code: 200 (OK) on success.
+        - HTTP Status Code: 404 (Not Found) if the team does not exist.
+    """
+    current_user_id = get_jwt_identity()
+    result, status_code = TeamService.get_team_members(current_user_id, team_id)
+    team_id_str = str(team_id)
+    
+    if status_code == 200 and isinstance(result, dict):
+        if "team" in result and isinstance(result["team"], dict) and "id" in result["team"]:
+            result["team"]["_links"] = generate_team_hypermedia_links(team_id=str(result["team"]["id"]), members=True)
+        if "members" in result and isinstance(result["members"], list):
+            for member in result["members"]:
+                if isinstance(member, dict) and "user_id" in member:
+                    member["_links"] = generate_team_member_links(team_id_str, str(member["user_id"]))
+        result["_links"] = generate_team_member_links(team_id_str)
+    elif status_code != 200:
+        # Add hypermedia links to error responses
+        context = {"entity_type": "team", "entity_id": team_id}
+        if isinstance(result, dict):
+            result["_links"] = generate_error_links(context)
+    return jsonify(result), status_code
+
+@team_bp.route("/<team_id>/projects", methods=["GET"])
+@jwt_required()
+@cache.cached(
+    timeout=300,
+    key_prefix=lambda: f"team_projects_{get_jwt_identity()}_{request.view_args['team_id']}"
+)
+def get_team_projects(team_id):
+    """
+    Retrieves all projects associated with a specific team.
+
+    Args:
+        - **team_id**: UUID of the team whose projects are to be retrieved.
+
+    Returns:
+        - List of projects associated with the team.
+        - HTTP Status Code: 200 (OK) on success.
+        - HTTP Status Code: 404 (Not Found) if the team does not exist.
+    """
+    current_user_id = get_jwt_identity()
+    result, status_code = TeamService.get_team_projects(current_user_id, team_id)
+    
+    if status_code == 200 and isinstance(result, dict):
+        # Add hypermedia links
+        result["_links"] = generate_team_hypermedia_links(team_id=str(team_id))
+    elif status_code != 200:
+        # Add hypermedia links to error responses
+        context = {"entity_type": "team", "entity_id": team_id}
+        if isinstance(result, dict):
+            result["_links"] = generate_error_links(context)
+    return jsonify(result), status_code
+
+
+@team_bp.route("/<team_id>/tasks", methods=["GET"])
+@jwt_required()
+@cache.cached(
+    timeout=300,
+    key_prefix=lambda: f"team_tasks_{get_jwt_identity()}_{request.view_args['team_id']}"
+)
+def get_team_tasks(team_id):
+    """
+    Retrieves all tasks associated with a specific team.
+
+    Args:
+        - **team_id**: UUID of the team whose tasks are to be retrieved.
+
+    Returns:
+        - List of tasks associated with the team.
+        - HTTP Status Code: 200 (OK) on success.
+        - HTTP Status Code: 404 (Not Found) if the team does not exist.
+    """
+    current_user_id = get_jwt_identity()
+    result, status_code = TeamService.get_team_tasks(current_user_id, team_id)
+    
+    if status_code == 200 and isinstance(result, dict):
+        # Add hypermedia links
+        result["_links"] = generate_team_hypermedia_links(team_id=str(team_id))
+    elif status_code != 200:
+        # Add hypermedia links to error responses
+        context = {"entity_type": "team", "entity_id": team_id}
+        if isinstance(result, dict):
+            result["_links"] = generate_error_links(context)
+    return jsonify(result), status_code
+            
+
+from flask import Blueprint, jsonify, request, url_for
+from flask_jwt_extended import get_jwt_identity, jwt_required
+from extentions.extensions import cache
+from schemas.schemas import USER_SCHEMA, USER_UPDATE_SCHEMA
+from services.user_services import UserService
+from utils.hypermedia.link_builder import build_standard_links
+from validators.validators import validate_json
+from utils.hypermedia.user_hypermedia import generate_user_hypermedia_links, generate_users_collection_links, add_user_hypermedia_links
+
+
+user_bp = Blueprint(
+    "user_routes", __name__, url_prefix="/users"
+)
+
+@user_bp.errorhandler(400)
+def bad_request(error):
+    response = {
+        "error": "Bad Request", 
+        "message": str(error),
+        "_links": generate_users_collection_links()
+    }
+    return jsonify(response), 400
+
+@user_bp.errorhandler(404)
+def not_found(error):
+    response = {
+        "error": "Not Found", 
+        "message": str(error),
+        "_links": generate_users_collection_links()
+    }
+    return jsonify(response), 404
+
+@user_bp.errorhandler(500)
+def internal_error(error):
+    response = {
+        "error": "Internal Server Error", 
+        "message": str(error),
+        "_links": generate_users_collection_links()
+    }
+    return jsonify(response), 500
+
+@user_bp.route("/", methods=["POST"])
+@validate_json(USER_SCHEMA)
+def create_user():
+    """
+    Create a new user in the system.
+
+    This endpoint allows the creation of a new user. It checks for the uniqueness of
+    email and username, hashes the password before saving, and assigns a default role
+    of 'member' if not provided.
+
+    :return: JSON response with the newly created user details or an error message.
+    :status 201: Successfully created user.
+    :status 400: Email or username already exists.
+    :status 500: Internal server error.
+    """
+    try:
+        data = request.get_json()
+        result, status_code = UserService.create_user(data)
+        
+        # Success case with valid user data
+        if status_code == 201 and isinstance(result, dict) and "id" in result:
+            # Add hypermedia links
+            result = add_user_hypermedia_links(result)
+            
+            # Add location header for the created resource
+            response = jsonify(result)
+            response.headers['Location'] = url_for('user_routes.get_user', user_id=result['id'], _external=True)
+            return response, 201
+        
+        # Handle error responses with proper status code
+        elif isinstance(result, dict):
+            if "_links" not in result:
+                result["_links"] = generate_users_collection_links()
+            return jsonify(result), status_code
+        
+        # Handle string responses or other non-dict responses
+        elif result is not None:
+            response = {
+                "message": result if isinstance(result, str) else "Operation completed",
+                "_links": generate_users_collection_links()
+            }
+            return jsonify(response), status_code
+        
+        # Fallback for unexpected response format
+        else:
+            response = {
+                "error": "Unexpected response format from user service",
+                "message": "The user service returned data in an unexpected format",
+                "_links": generate_users_collection_links()
+            }
+            return jsonify(response), 500
+    except Exception as e:
+        response = {
+            "error": "Internal server error", 
+            "message": str(e),
+            "_links": generate_users_collection_links()
+        }
+        return jsonify(response), 500
+
+@user_bp.route("/<user_id>", methods=["GET"])
+@jwt_required()
+@cache.cached(
+    timeout=300, key_prefix=lambda: f"user_{get_jwt_identity()}_{request.view_args['user_id']}"
+)
+def get_user(user_id):
+    """
+    Get the details of a user by their ID.
+
+    This endpoint retrieves the details of a specific user, identified by their user ID.
+    The response is cached for 5 minutes for performance optimization.
+
+    :param user_id: The UUID of the user to retrieve.
+    :return: JSON response with the user's details or an error message.
+    :status 200: Successfully retrieved user details.
+    :status 404: User not found.
+    """
+    try:
+        result, status_code = UserService.get_user(user_id)
+        
+        # Success case with valid user data
+        if status_code == 200 and isinstance(result, dict) and "id" in result:
+            # Add hypermedia links
+            result = add_user_hypermedia_links(result)
+            return jsonify(result), 200
+        
+        # Handle error responses with proper status code
+        elif isinstance(result, dict):
+            if "_links" not in result:
+                result["_links"] = generate_users_collection_links()
+            return jsonify(result), status_code
+        
+        # Handle string responses or other non-dict responses
+        elif result is not None:
+            response = {
+                "message": result if isinstance(result, str) else "Operation completed",
+                "_links": generate_users_collection_links()
+            }
+            return jsonify(response), status_code
+            
+        # Fallback for unexpected response format
+        else:
+            response = {
+                "error": "Unexpected response format from user service",
+                "message": f"Failed to retrieve user with ID {user_id}",
+                "_links": generate_users_collection_links()
+            }
+            return jsonify(response), 500
+    except Exception as e:
+        response = {
+            "error": "Internal server error", 
+            "message": str(e),
+            "_links": generate_users_collection_links()
+        }
+        return jsonify(response), 500
+
+@user_bp.route("/<user_id>", methods=["PUT"])
+@jwt_required()
+@validate_json(USER_UPDATE_SCHEMA)
+def update_user(user_id):
+    """
+    Update a user's details.
+
+    This endpoint allows users to update their details such as username, email,
+    password, and role (only if the user is an admin). It ensures that the current
+    user is authorized to make the changes (i.e., they can only update their own details
+    unless they are an admin).
+
+    :param user_id: The UUID of the user to update.
+    :return: JSON response with the updated user details or an error message.
+    :status 200: Successfully updated user details.
+    :status 400: Invalid input data.
+    :status 403: Unauthorized access (if user tries to update someone else's details).
+    :status 404: User not found.
+    """
+    try:
+        current_user_id = get_jwt_identity()
+        data = request.get_json()
+        
+        # Check if user exists first
+        user_result, user_status = UserService.get_user(user_id)
+        if user_status != 200:
+            response = {
+                "error": "User not found",
+                "message": f"User with ID {user_id} not found",
+                "_links": generate_users_collection_links()
+            }
+            return jsonify(response), 404
+            
+        result, status_code = UserService.update_user(user_id, current_user_id, data)
+        
+        # Clear cache
+        cache_key = f"user_{current_user_id}_{user_id}"
+        cache.delete(cache_key)
+        all_users_cache_key = f"all_users_{current_user_id}"
+        cache.delete(all_users_cache_key)
+        
+        # Success case with valid user data
+        if status_code == 200 and isinstance(result, dict) and "id" in result:
+            # Add hypermedia links
+            result = add_user_hypermedia_links(result)
+            return jsonify(result), 200
+        
+        # Handle error responses with proper status code
+        elif isinstance(result, dict):
+            if "_links" not in result:
+                result["_links"] = generate_users_collection_links()
+            return jsonify(result), status_code
+        
+        # Handle string responses or other non-dict responses
+        elif result is not None:
+            response = {
+                "message": result if isinstance(result, str) else "Operation completed",
+                "_links": generate_users_collection_links()
+            }
+            return jsonify(response), status_code
+            
+        # Fallback for unexpected response format
+        else:
+            response = {
+                "error": "Unexpected response format from user service",
+                "message": f"Failed to update user with ID {user_id}",
+                "_links": generate_users_collection_links()
+            }
+            return jsonify(response), 500
+    except Exception as e:
+        response = {
+            "error": "Internal server error", 
+            "message": str(e),
+            "_links": generate_users_collection_links()
+        }
+        return jsonify(response), 500
+
+@user_bp.route("/<user_id>", methods=["DELETE"])
+@jwt_required()
+def delete_user(user_id):
+    """
+    Delete a user from the system.
+
+    This endpoint allows an admin to delete a user. Only users with 'admin' role are
+    allowed to perform this operation.
+
+    :param user_id: The UUID of the user to delete.
+    :return: JSON response indicating the success of the operation or an error message.
+    :status 200: Successfully deleted the user.
+    :status 403: Admin privileges required.
+    :status 404: User not found.
+    """
+    try:
+        current_user_id = get_jwt_identity()
+        
+        # Check if user exists first
+        user_result, user_status = UserService.get_user(user_id)
+        if user_status != 200:
+            response = {
+                "error": "User not found",
+                "message": f"User with ID {user_id} not found",
+                "_links": generate_users_collection_links()
+            }
+            return jsonify(response), 404
+            
+        result, status_code = UserService.delete_user(user_id, current_user_id)
+        
+        # Clear cache
+        user_cache_key = f"user_{current_user_id}_{user_id}"
+        cache.delete(user_cache_key)
+        all_users_cache_key = f"all_users_{current_user_id}"
+        cache.delete(all_users_cache_key)
+        
+        # Success case
+        if status_code == 200:
+            response = {
+                "message": result if isinstance(result, str) else "User deleted successfully",
+                "_links": generate_users_collection_links()
+            }
+            return jsonify(response), 200
+        
+        # Handle error responses with proper status code
+        elif isinstance(result, dict):
+            if "_links" not in result:
+                result["_links"] = generate_users_collection_links()
+            return jsonify(result), status_code
+        
+        # Handle string responses or other non-dict responses that aren't success
+        elif result is not None and status_code != 200:
+            response = {
+                "message": result if isinstance(result, str) else "Operation completed",
+                "_links": generate_users_collection_links()
+            }
+            return jsonify(response), status_code
+            
+        # Fallback for unexpected response format
+        else:
+            response = {
+                "error": "Unexpected response format from user service",
+                "message": f"Failed to delete user with ID {user_id}",
+                "_links": generate_users_collection_links()
+            }
+            return jsonify(response), 500
+    except Exception as e:
+        response = {
+            "error": "Internal server error", 
+            "message": str(e),
+            "_links": generate_users_collection_links()
+        }
+        return jsonify(response), 500
+
+@user_bp.route("/", methods=["GET"])
+# @jwt_required()
+@cache.cached(timeout=200, key_prefix=lambda: f"all_users")
+def fetch_users():
+    """
+    Fetch all users from the database with caching enabled.
+
+    Returns:
+        JSON response containing a list of all users and hypermedia controls.
+    """
+    try:
+        result, status_code = UserService.get_all_users()
+        
+        # Success case with list of users
+        if status_code == 200 and isinstance(result, list):
+            response = {
+                "users": [],
+                "_links": generate_users_collection_links()
+            }
+            
+            for user in result:
+                if isinstance(user, dict) and "id" in user:
+                    response["users"].append(add_user_hypermedia_links(user))
+                else:
+                    # Handle non-standard user objects in the list
+                    response["users"].append(user)
+            return jsonify(response), 200
+        
+        # Handle error responses with proper status code
+        elif isinstance(result, dict):
+            if "_links" not in result:
+                result["_links"] = generate_users_collection_links()
+            return jsonify(result), status_code
+        
+        # Handle string responses or other non-dict responses
+        elif result is not None:
+            response = {
+                "message": result if isinstance(result, str) else "Operation completed",
+                "_links": generate_users_collection_links()
+            }
+            return jsonify(response), status_code
+            
+        # Fallback for unexpected response format
+        else:
+            response = {
+                "error": "Unexpected response format from user service",
+                "message": "Failed to fetch users",
+                "_links": generate_users_collection_links()
+            }
+            return jsonify(response), 500
+    except Exception as e:
+        response = {
+            "error": "Internal server error", 
+            "message": str(e),
+            "_links": generate_users_collection_links()
+        }
+        return jsonify(response), 500
+
+
+from flask import url_for
+
+def build_standard_links(entity_type, entity_id=None, extra_links=None):
+    """
+    Build a standardized set of hypermedia links for an entity.
+    
+    Args:
+        entity_type (str): The type of entity (task, project, team, user)
+        entity_id (str, optional): The ID of the specific entity
+        extra_links (dict, optional): Additional links specific to this entity
+        
+    Returns:
+        dict: A dictionary of links with complete HATEOAS support
+    """
+    links = {
+        "root": {
+            "href": url_for("entry_point.api_root", _external=True), 
+            "method": "GET",
+            "title": "API root"
+        },
+    }
+
+    # Add collection link with appropriate title
+    if entity_type == "task":
+        links["collection"] = {
+            "href": url_for("task_routes.get_tasks", _external=True),
+            "method": "GET",
+            "title": "All tasks"
+        }
+    elif entity_type == "project":
+        links["collection"] = {
+            "href": url_for("project_routes.get_all_projects", _external=True),
+            "method": "GET",
+            "title": "All projects"
+        }
+    elif entity_type == "team":
+        links["collection"] = {
+            "href": url_for("team_routes.get_all_teams", _external=True),
+            "method": "GET",
+            "title": "All teams"
+        }
+    elif entity_type == "user":
+        links["collection"] = {
+            "href": url_for("user_routes.fetch_users", _external=True),
+            "method": "GET",
+            "title": "All users"
+        }
+
+    # Add self link if entity_id is provided with appropriate title
+    if entity_id:
+        if entity_type == "task":
+            links["self"] = {
+                "href": url_for("task_routes.task_operations", task_id=entity_id, _external=True),
+                "method": "GET",
+                "title": "Current task"
+            }
+        elif entity_type == "project":
+            links["self"] = {
+                "href": url_for("project_routes.get_project", project_id=entity_id, _external=True),
+                "method": "GET",
+                "title": "Current project"
+            }
+        elif entity_type == "team":
+            links["self"] = {
+                "href": url_for("team_routes.get_team", team_id=entity_id, _external=True),
+                "method": "GET",
+                "title": "Current team"
+            }
+        elif entity_type == "user":
+            links["self"] = {
+                "href": url_for("user_routes.get_user", user_id=entity_id, _external=True),
+                "method": "GET",
+                "title": "Current user"
+            }
+
+    # Add related resources links with methods and titles
+    links["tasks"] = {
+        "href": url_for("task_routes.get_tasks", _external=True),
+        "method": "GET",
+        "title": "Browse all tasks"
+    }
+    links["projects"] = {
+        "href": url_for("project_routes.get_all_projects", _external=True),
+        "method": "GET",
+        "title": "Browse all projects"
+    }
+    links["teams"] = {
+        "href": url_for("team_routes.get_all_teams", _external=True),
+        "method": "GET",
+        "title": "Browse all teams"
+    }
+    links["users"] = {
+        "href": url_for("user_routes.fetch_users", _external=True),
+        "method": "GET",
+        "title": "Browse all users"
+    }
+
+    # Add contextual create links based on entity type
+    if entity_type == "task" and not entity_id:
+        links["create_task"] = {
+            "href": url_for("task_routes.create_task", _external=True),
+            "method": "POST",
+            "title": "Create new task",
+            "encoding": "application/json"
+        }
+    elif entity_type == "project" and not entity_id:
+        links["create_project"] = {
+            "href": url_for("project_routes.create_project", _external=True),
+            "method": "POST",
+            "title": "Create new project",
+            "encoding": "application/json"
+        }
+    elif entity_type == "team" and not entity_id:
+        links["create_team"] = {
+            "href": url_for("team_routes.create_team", _external=True),
+            "method": "POST",
+            "title": "Create new team",
+            "encoding": "application/json"
+        }
+    elif entity_type == "user" and not entity_id:
+        links["create_user"] = {
+            "href": url_for("user_routes.create_user", _external=True),
+            "method": "POST",
+            "title": "Create new user",
+            "encoding": "application/json"
+        }
+
+    # Add entity-specific operations if ID is provided
+    if entity_id:
+        if entity_type == "task":
+            links["update"] = {
+                "href": url_for("task_routes.update_task", task_id=entity_id, _external=True),
+                "method": "PUT",
+                "title": "Update this task",
+                "encoding": "application/json"
+            }
+            links["delete"] = {
+                "href": url_for("task_routes.delete_task", task_id=entity_id, _external=True),
+                "method": "DELETE",
+                "title": "Delete this task"
+            }
+            links["comments"] = {
+                "href": url_for("task_routes.get_task_comments", task_id=entity_id, _external=True),
+                "method": "GET",
+                "title": "View task comments"
+            }
+        elif entity_type == "project":
+            links["update"] = {
+                "href": url_for("project_routes.update_project", project_id=entity_id, _external=True),
+                "method": "PUT",
+                "title": "Update this project",
+                "encoding": "application/json"
+            }
+            links["delete"] = {
+                "href": url_for("project_routes.delete_project", project_id=entity_id, _external=True),
+                "method": "DELETE",
+                "title": "Delete this project"
+            }
+            links["tasks"] = {
+                "href": url_for("project_routes.get_project_tasks", project_id=entity_id, _external=True),
+                "method": "GET",
+                "title": "View project tasks"
+            }
+        elif entity_type == "user":
+            links["update"] = {
+                "href": url_for("user_routes.update_user", user_id=entity_id, _external=True),
+                "method": "PUT",
+                "title": "Update this user",
+                "encoding": "application/json"
+            }
+            links["user_tasks"] = {
+                "href": url_for("task_routes.get_user_tasks", user_id=entity_id, _external=True),
+                "method": "GET",
+                "title": "View user's tasks"
+            }
+            links["user_teams"] = {
+                "href": url_for("user_routes.get_user_teams", user_id=entity_id, _external=True),
+                "method": "GET",
+                "title": "View user's teams"
+            }
+
+    # Add extra links if provided
+    if extra_links and isinstance(extra_links, dict):
+        links.update(extra_links)
+
+    return links
+
+
+from flask import url_for
+from utils.hypermedia.link_builder import build_standard_links
+from schemas.schemas import PROJECT_SCHEMA, PROJECT_UPDATE_SCHEMA
+
+def add_project_hypermedia_links(project_dict):
+    """
+    Add hypermedia links to a project resource.
+    Args:
+        project_dict (dict): The project dictionary to add links to
+    Returns:
+        dict: The project with added _links property
+    """
+    if not project_dict or not isinstance(project_dict, dict) or "id" not in project_dict:
+        return project_dict
+    project_with_links = dict(project_dict)
+    project_id = str(project_dict["id"])
+    links = build_standard_links("project", project_id)
+    project_specific = {
+        "update": {
+            "href": url_for("project_routes.update_project", project_id=project_id, _external=True),
+            "method": "PUT",
+            "schema": PROJECT_UPDATE_SCHEMA
+        },
+        "delete": {
+            "href": url_for("project_routes.delete_project", project_id=project_id, _external=True),
+            "method": "DELETE"
+        },
+        "tasks": {
+            "href": url_for("task_routes.get_tasks", project_id=project_id, _external=True),
+            "method": "GET"
+        }
+    }
+    links.update(project_specific)
+    project_with_links["_links"] = links
+    return project_with_links
+
+def generate_projects_collection_links(filters=None):
+    """
+    Generate links for the projects collection resource.
+    Args:
+        filters (dict, optional): Any filters applied to the collection
+    Returns:
+        dict: A dictionary of links for the projects collection
+    """
+    links = build_standard_links("project")
+    collection_links = {
+        "create": {
+            "href": url_for("project_routes.create_project", _external=True),
+            "method": "POST",
+            "schema": PROJECT_SCHEMA
+        }
+    }
+    links.update(collection_links)
+    
+    # Add filter links if filters are provided
+    if filters:
+        for key, value in filters.items():
+            if value is not None:
+                new_filters = {k: v for k, v in filters.items() if k != key and v is not None}
+                filter_name = f"clear_{key}_filter"
+                if new_filters:
+                    links[filter_name] = {
+                        "href": url_for("project_routes.get_all_projects", **new_filters, _external=True),
+                        "method": "GET"
+                    }
+                else:
+                    links[filter_name] = {
+                        "href": url_for("project_routes.get_all_projects", _external=True),
+                        "method": "GET"
+                    }
+    
+    return links
+
+from flask import url_for
+from utils.hypermedia.link_builder import build_standard_links
+from schemas.schemas import TASK_SCHEMA, TASK_UPDATE_SCHEMA
+
+def add_task_hypermedia_links(task_dict):
+    """
+    Add hypermedia links to a task resource.
+    Args:
+        task_dict (dict): The task dictionary to add links to
+    Returns:
+        dict: The task with added _links property
+    """
+    if not task_dict or not isinstance(task_dict, dict) or "id" not in task_dict:
+        return task_dict
+    task_with_links = dict(task_dict)
+    task_id = str(task_dict["id"])
+    links = build_standard_links("task", task_id)
+    task_specific = {
+        "update": {
+            "href": url_for("task_routes.task_operations", task_id=task_id, _external=True),
+            "method": "PUT",
+            "schema": TASK_UPDATE_SCHEMA
+        },
+        "delete": {
+            "href": url_for("task_routes.task_operations", task_id=task_id, _external=True),
+            "method": "DELETE"
+        }
+    }
+    links.update(task_specific)
+    if "project_id" in task_dict and task_dict["project_id"]:
+        project_id = str(task_dict["project_id"])
+        links["project"] = {
+            "href": url_for("project_routes.get_project", project_id=project_id, _external=True),
+            "method": "GET"
+        }
+    if "assignee_id" in task_dict and task_dict["assignee_id"]:
+        assignee_id = str(task_dict["assignee_id"])
+        links["assignee"] = {
+            "href": url_for("user_routes.get_user", user_id=assignee_id, _external=True),
+            "method": "GET"
+        }
+    task_with_links["_links"] = links
+    return task_with_links
+
+def generate_tasks_collection_links(filters=None):
+    """
+    Generate links for the tasks collection resource.
+    Args:
+        filters (dict, optional): Filters applied to the collection
+    Returns:
+        dict: A dictionary of links for the tasks collection
+    """
+    links = build_standard_links("task")
+    collection_links = {
+        "create": {
+            "href": url_for("task_routes.create_task", _external=True),
+            "method": "POST",
+            "schema": TASK_SCHEMA
+        }
+    }
+    links.update(collection_links)
+    if filters:
+        for key, value in filters.items():
+            if value is not None:
+                new_filters = {k: v for k, v in filters.items() if k != key and v is not None}
+                filter_name = f"clear_{key}_filter"
+                if new_filters:
+                    links[filter_name] = {
+                        "href": url_for("task_routes.get_tasks", **new_filters, _external=True),
+                        "method": "GET"
+                    }
+                else:
+                    links[filter_name] = {
+                        "href": url_for("task_routes.get_tasks", _external=True),
+                        "method": "GET"
+                    }
+    return links
+
+from flask import url_for
+from utils.hypermedia.link_builder import build_standard_links
+from schemas.schemas import TEAM_SCHEMA, TEAM_UPDATE_SCHEMA, TEAM_MEMBERSHIP_SCHEMA
+
+def generate_team_hypermedia_links(team_id=None, members=False):
+    """
+    Generate hypermedia links for team resources.
+    
+    Args:
+        team_id (str, optional): The ID of the specific team
+        members (bool): Whether to include links to team member resources
+        
+    Returns:
+        dict: A dictionary of links with HATEOAS compliance
+    """
+    # Get standard links (root, collection, self, related resources)
+    links = build_standard_links("team", team_id)
+    
+    # Add collection-level links
+    if not team_id:
+        collection_links = {
+            "create": {
+                "href": url_for("team_routes.create_team", _external=True),
+                "method": "POST",
+                "schema": TEAM_SCHEMA,
+                "encoding": "application/json",
+                "title": "Create a new team"
+            }
+        }
+        links.update(collection_links)
+    
+    # Add resource-level links for a specific team
+    if team_id:
+        team_specific = {
+            "self": {
+                "href": url_for("team_routes.get_team", team_id=team_id, _external=True),
+                "method": "GET",
+                "title": "Get team details"
+            },
+            "update": {
+                "href": url_for("team_routes.update_team", team_id=team_id, _external=True),
+                "method": "PUT",
+                "schema": TEAM_UPDATE_SCHEMA,
+                "encoding": "application/json",
+                "title": "Update team details"
+            },
+            "delete": {
+                "href": url_for("team_routes.delete_team", team_id=team_id, _external=True),
+                "method": "DELETE",
+                "title": "Delete team"
+            },
+            "members": {
+                "href": url_for("team_routes.get_team_members", team_id=team_id, _external=True),
+                "method": "GET",
+                "title": "List team members"
+            },
+            "add_member": {
+                "href": url_for("team_routes.add_team_member", team_id=team_id, _external=True),
+                "method": "POST",
+                "schema": TEAM_MEMBERSHIP_SCHEMA,
+                "encoding": "application/json",
+                "title": "Add a member to team"
+            }
+        }
+        links.update(team_specific)
+        
+        # Add project-related links
+        links["team_projects"] = {
+            "href": url_for("team_routes.get_team_projects", team_id=team_id, _external=True),
+            "method": "GET",
+            "title": "Get team's projects"
+        }
+        
+        # Add task-related links
+        links["team_tasks"] = {
+            "href": url_for("team_routes.get_team_tasks", team_id=team_id, _external=True),
+            "method": "GET",
+            "title": "Get team's tasks"
+        }
+
+    return links
+
+def generate_team_member_links(team_id, user_id=None):
+    """
+    Generate hypermedia links for team member resources.
+    
+    Args:
+        team_id (str): The team ID
+        user_id (str, optional): The user ID of the team member
+        
+    Returns:
+        dict: A dictionary of links with HATEOAS compliance
+    """
+    links = {
+        "team": {
+            "href": url_for("team_routes.get_team", team_id=team_id, _external=True),
+            "method": "GET",
+            "title": "Get parent team"
+        },
+        "members": {
+            "href": url_for("team_routes.get_team_members", team_id=team_id, _external=True),
+            "method": "GET",
+            "title": "List all team members"
+        },
+        "root": {
+            "href": url_for("entry_point.api_root", _external=True),
+            "method": "GET",
+            "title": "API root"
+        },
+        "teams": {
+            "href": url_for("team_routes.get_all_teams", _external=True),
+            "method": "GET",
+            "title": "List all teams"
+        }
+    }
+    
+    # Collection-level member links
+    if not user_id:
+        collection_links = {
+            "add_member": {
+                "href": url_for("team_routes.add_team_member", team_id=team_id, _external=True),
+                "method": "POST",
+                "schema": TEAM_MEMBERSHIP_SCHEMA,
+                "encoding": "application/json",
+                "title": "Add a team member"
+            }
+        }
+        links.update(collection_links)
+    
+    # Specific member links
+    if user_id:
+        member_specific = {
+            "self": {
+                "href": url_for(
+                    "team_routes.get_team_member", 
+                    team_id=team_id, 
+                    user_id=user_id, 
+                    _external=True
+                ),
+                "method": "GET",
+                "title": "Get team member details"
+            },
+            "update": {
+                "href": url_for(
+                    "team_routes.update_team_member",
+                    team_id=team_id,
+                    user_id=user_id,
+                    _external=True
+                ),
+                "method": "PUT",
+                "schema": TEAM_MEMBERSHIP_SCHEMA,
+                "encoding": "application/json",
+                "title": "Update team member role"
+            },
+            "delete": {
+                "href": url_for(
+                    "team_routes.remove_team_member",
+                    team_id=team_id,
+                    user_id=user_id,
+                    _external=True
+                ),
+                "method": "DELETE",
+                "title": "Remove member from team"
+            },
+            "user": {
+                "href": url_for("user_routes.get_user", user_id=user_id, _external=True),
+                "method": "GET",
+                "title": "View user profile"
+            },
+        }
+        links.update(member_specific)
+    
+    return links
+
+def generate_error_links(context=None):
+    """
+    Generate contextual error response links.
+    
+    Args:
+        context (dict, optional): Error context information including entity type and IDs
+        
+    Returns:
+        dict: A dictionary of appropriate links
+    """
+    links = {
+        "root": {
+            "href": url_for("entry_point.api_root", _external=True),
+            "method": "GET",
+            "title": "API root"
+        },
+    }
+    
+    if context:
+        entity_type = context.get("entity_type")
+        entity_id = context.get("entity_id")
+        
+        if entity_type == "team":
+            links.update(generate_team_hypermedia_links(team_id=entity_id))
+        elif entity_type == "team_member":
+            team_id = context.get("team_id")
+            user_id = context.get("user_id")
+            links.update(generate_team_member_links(team_id, user_id))
+    
+    return linksfrom flask import url_for
+from utils.hypermedia.link_builder import build_standard_links
+from schemas.schemas import USER_SCHEMA, USER_UPDATE_SCHEMA
+
+def add_user_hypermedia_links(user_dict):
+    """
+    Add hypermedia links to a user resource.
+    Args:
+        user_dict (dict): The user dictionary to add links to
+    Returns:
+        dict: The user with added _links property
+    """
+    if not user_dict or not isinstance(user_dict, dict) or "id" not in user_dict:
+        return user_dict
+    user_with_links = dict(user_dict)
+    user_id = str(user_dict["id"])
+    user_with_links["_links"] = generate_user_hypermedia_links(user_id)
+    return user_with_links
+
+def generate_user_hypermedia_links(user_id=None):
+    """
+    Generate hypermedia links for user resources.
+    Args:
+        user_id (str, optional): The user ID
+    Returns:
+        dict: A dictionary of links for the user resource
+    """
+    links = build_standard_links("user", user_id)
+    if user_id:
+        links.update({
+            "update": {
+                "href": url_for("user_routes.update_user", user_id=user_id, _external=True),
+                "method": "PUT",
+                "schema": USER_UPDATE_SCHEMA
+            },
+            "delete": {
+                "href": url_for("user_routes.delete_user", user_id=user_id, _external=True),
+                "method": "DELETE"
+            },
+            "user_tasks": {
+                "href": url_for("task_routes.get_tasks", assignee_id=user_id, _external=True),
+                "method": "GET"
+            },
+            "teams": {
+                "href": url_for("team_routes.get_all_teams", _external=True),
+                "method": "GET"
+            }
+        })
+    else:
+        links.update({
+            "create": {
+                "href": url_for("user_routes.create_user", _external=True),
+                "method": "POST",
+                "schema": USER_SCHEMA
+            }
+        })
+    return links
+
+def generate_users_collection_links():
+    """
+    Generate links for the users collection resource.
+    Returns:
+        dict: A dictionary of links for the users collection
+    """
+    links = build_standard_links("user")
+    collection_links = {
+        "create": {
+            "href": url_for("user_routes.create_user", _external=True),
+            "method": "POST",
+            "schema": USER_SCHEMA
+        }
+    }
+    links.update(collection_links)
+    return links
