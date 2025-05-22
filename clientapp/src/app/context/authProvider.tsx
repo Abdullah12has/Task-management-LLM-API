@@ -11,9 +11,9 @@ interface AuthContextType {
   isAuthenticated: boolean;
 }
 
-// 1. Create the context with a default
+// 1. Create the context with null default (not hard-coded token)
 export const AuthContext = createContext<AuthContextType>({
-  token: null,
+  token: null, // Should be null, not a hard-coded JWT
   login: async () => false,
   logout: () => {},
   isAuthenticated: false,
@@ -28,9 +28,23 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const savedToken = getCookie('auth-token');
-    if (savedToken) setToken(savedToken);
-    setLoading(false);
+    // Initialize token from cookie on mount
+    const initializeAuth = async () => {
+      try {
+        const savedToken = getCookie('auth-token');
+        console.log('Saved token from cookie:', savedToken); // Debug log
+        
+        if (savedToken && savedToken.trim() !== '') {
+          setToken(savedToken);
+        }
+      } catch (error) {
+        console.error('Error reading auth cookie:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    initializeAuth();
   }, []);
 
   const login = async (email: string, password: string) => {
@@ -41,10 +55,20 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         body: JSON.stringify({ email, password }),
       });
 
-      if (!response.ok) throw new Error('Login failed');
+      if (!response.ok) {
+        throw new Error(`Login failed: ${response.status}`);
+      }
 
       const data = await response.json();
-      const jwt = data.token;
+      const jwt = data.access_token; // Changed from data.token to data.access_token
+      
+      console.log('Login successful, received token:', jwt); // Debug log
+      console.log('Full response data:', data); // Debug log
+      
+      if (!jwt) {
+        throw new Error('No token received from server');
+      }
+
       setToken(jwt);
       setCookie('auth-token', jwt, { maxAge: 60 * 60 * 24 * 7 });
       return true;
@@ -55,6 +79,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const logout = () => {
+    console.log('Logging out, clearing token'); // Debug log
     setToken(null);
     setCookie('auth-token', '', { maxAge: 0 });
   };
@@ -63,10 +88,17 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     token,
     login,
     logout,
-    isAuthenticated: !!token,
+    isAuthenticated: !!token && token.trim() !== '',
   };
 
-  if (loading) return <div>Loading...</div>;
+  // Show loading state while initializing
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div>Loading...</div>
+      </div>
+    );
+  }
 
   return <AuthContext.Provider value={auth}>{children}</AuthContext.Provider>;
 };

@@ -12,9 +12,9 @@ export default async function Login() {
 
     return (
         <div className="w-screen h-screen flex flex-col  bg-[#0E0E10]">
-            <AuthProvider>
+            {/* <AuthProvider> */}
                 <SidebarDemo />
-            </AuthProvider>
+            {/* </AuthProvider> */}
 
         </div>
     );

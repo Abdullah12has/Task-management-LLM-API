@@ -16,7 +16,6 @@ type User = {
   username: string;
 };
 
-
 export default function UserProfile() {
   const { token } = useAuth(); // Get the auth token
   const [userId, setUserId] = useState<string | null>(null);
@@ -24,38 +23,54 @@ export default function UserProfile() {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Log token for debugging
+  console.log("[DEBUG] Auth token:", token);
+
   // Extract userId from URL
   useEffect(() => {
     const path = window.location.pathname;
+    console.log("[DEBUG] Current pathname:", path);
+
     const match = path.match(/\/users\/([^\/]+)$/);
     if (match && match[1]) {
+      console.log("[DEBUG] Extracted userId:", match[1]);
       setUserId(match[1]);
+    } else {
+      console.warn("[DEBUG] Failed to extract userId from URL.");
     }
   }, []);
 
   useEffect(() => {
     const fetchUser = async () => {
-      if (!userId || !token) return; // Ensure token and userId are available
+      if (!userId || !token) {
+        console.warn("[DEBUG] Missing userId or token. Skipping fetch.");
+        return;
+      }
 
       try {
+        console.log("[DEBUG] Fetching user with ID:", userId);
         setLoading(true);
+
         const response = await fetch(`http://127.0.0.1:8080/users/${userId}`, {
           headers: {
-            'Authorization': `Bearer ${token}`, // Send token
+            'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json',
           },
         });
+
+        console.log("[DEBUG] Fetch response status:", response.status);
 
         if (!response.ok) {
           throw new Error(`HTTP error! Status: ${response.status}`);
         }
 
         const data = await response.json();
+        console.log("[DEBUG] Fetched user data:", data);
         setUser(data);
         setError(null);
       } catch (err) {
+        console.error("[DEBUG] Error fetching user:", err);
         setError('Failed to fetch user data. Please try again later.');
-        console.error('Error fetching user:', err);
       } finally {
         setLoading(false);
       }
@@ -78,7 +93,6 @@ export default function UserProfile() {
   const goBackToUsers = () => {
     window.location.href = '/login';
   };
-
 
   return (
     <div className="flex flex-col h-full w-full overflow-hidden">
