@@ -12,6 +12,7 @@ import { motion } from "motion/react";
 import { cn } from "@/lib/utils";
 import LoginForm from "./custom/loginBox";
 import UserGrid from "./custom/userBox";
+import { ProjectBox } from "./custom/projectBox";
 
 // New component imports for dashboard sections
 // import HomeComponent from "./dashboard/HomeComponent";
@@ -31,7 +32,7 @@ interface Links {
     label: string;
     icon: JSX.Element;
     href: string;
-    active?: boolean; 
+    active?: boolean;
 }
 
 
@@ -103,7 +104,7 @@ export function SidebarDemo() {
                                             ...link,
                                             href: "#",
                                         }}
-                                        // active={activeComponent === link.id} 
+                                    // active={activeComponent === link.id} 
                                     />
                                 </div>
                             ))}
@@ -171,11 +172,11 @@ const Dashboard = ({ activeComponent }: DashboardProps) => {
     const renderComponent = () => {
         switch (activeComponent) {
             case "login":
-                return <LoginForm/>;
+                return <LoginForm />
             case "users":
-                return <UserGrid />;
+                return <UserGrid />
             case "projects":
-                return <div> <p>hello1 </p></div>;
+                return <ProjectBox />
             case "tasks":
                 return <div> <p>hello 2</p></div>;
             case "team":

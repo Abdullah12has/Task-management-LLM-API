@@ -1,6 +1,4 @@
-
 import { useState, useEffect } from 'react';
-
 
 type UserLink = {
   self: string;
@@ -22,31 +20,103 @@ type ApiResponse = {
   users: User[];
 };
 
+type CreateUserData = {
+  username: string;
+  email: string;
+  password: string;
+  role: "admin" | "member";
+};
+
 export default function UserGrid() {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
+  const [isCreating, setIsCreating] = useState<boolean>(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  
+  // Form state
+  const [formData, setFormData] = useState<CreateUserData>({
+    username: '',
+    email: '',
+    password: '',
+    role: 'member'
+  });
 
   useEffect(() => {
-    const fetchUsers = async () => {
-      try {
-        setLoading(true);
-        // In a real app, you would fetch from your API endpoint
-        // For demo purposes, we're simulating the API response
-        const response = await fetch('http://127.0.0.1:8080/users/');
-        const data: ApiResponse = await response.json();
-        setUsers(data.users);
-        setError(null);
-      } catch (err) {
-        setError('Failed to fetch users. Please try again later.');
-        console.error('Error fetching users:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
     fetchUsers();
   }, []);
+
+  const fetchUsers = async () => {
+    try {
+      setLoading(true);
+      const response = await fetch('http://127.0.0.1:8080/users/');
+      const data: ApiResponse = await response.json();
+      setUsers(data.users);
+      setError(null);
+    } catch (err) {
+      setError('Failed to fetch users. Please try again later.');
+      console.error('Error fetching users:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCreateUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsCreating(true);
+    setCreateError(null);
+
+    try {
+      const response = await fetch('http://127.0.0.1:8080/users/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(formData),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to create user: ${response.status}`);
+      }
+
+      // Reset form and close modal
+      setFormData({
+        username: '',
+        email: '',
+        password: '',
+        role: 'member'
+      });
+      setIsModalOpen(false);
+      
+      // Refresh the users list
+      await fetchUsers();
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : 'Failed to create user');
+      console.error('Error creating user:', err);
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({
+      ...prev,
+      [name]: value
+    }));
+  };
+
+  const closeModal = () => {
+    setIsModalOpen(false);
+    setCreateError(null);
+    setFormData({
+      username: '',
+      email: '',
+      password: '',
+      role: 'member'
+    });
+  };
 
   // Function to format the date
   const formatDate = (dateString: string) => {
@@ -62,8 +132,17 @@ export default function UserGrid() {
 
   return (
     <div className="flex flex-col h-full w-full overflow-hidden">
-      <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+      <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
         <h1 className="text-2xl font-bold text-gray-800 dark:text-white">User Management</h1>
+        <button
+          onClick={() => setIsModalOpen(true)}
+          className="bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white px-4 py-2 rounded-lg font-medium transition duration-200 flex items-center gap-2"
+        >
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+          </svg>
+          Create New User
+        </button>
       </div>
       
       {error && (
@@ -136,6 +215,120 @@ export default function UserGrid() {
           </div>
         )}
       </div>
+
+      {/* Create User Modal */}
+      {isModalOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white dark:bg-neutral-800 rounded-lg shadow-xl w-full max-w-md">
+            <div className="flex justify-between items-center p-6 border-b border-gray-200 dark:border-gray-700">
+              <h2 className="text-xl font-semibold text-gray-800 dark:text-white">Create New User</h2>
+              <button
+                onClick={closeModal}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateUser} className="p-6">
+              {createError && (
+                <div className="mb-4 p-3 text-red-500 bg-red-100 dark:bg-red-900 dark:text-red-200 rounded-lg">
+                  {createError}
+                </div>
+              )}
+
+              <div className="space-y-4">
+                <div>
+                  <label htmlFor="username" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Username
+                  </label>
+                  <input
+                    type="text"
+                    id="username"
+                    name="username"
+                    value={formData.username}
+                    onChange={handleInputChange}
+                    required
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-neutral-700 dark:text-white"
+                    placeholder="Enter username"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Email
+                  </label>
+                  <input
+                    type="email"
+                    id="email"
+                    name="email"
+                    value={formData.email}
+                    onChange={handleInputChange}
+                    required
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-neutral-700 dark:text-white"
+                    placeholder="Enter email address"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Password
+                  </label>
+                  <input
+                    type="password"
+                    id="password"
+                    name="password"
+                    value={formData.password}
+                    onChange={handleInputChange}
+                    required
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-neutral-700 dark:text-white"
+                    placeholder="Enter password"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="role" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Role
+                  </label>
+                  <select
+                    id="role"
+                    name="role"
+                    value={formData.role}
+                    onChange={handleInputChange}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-neutral-700 dark:text-white"
+                  >
+                    <option value="member">Member</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 mt-6">
+                <button
+                  type="button"
+                  onClick={closeModal}
+                  className="px-4 py-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-neutral-700 rounded-lg transition duration-200"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isCreating}
+                  className={`px-4 py-2 text-white rounded-lg transition duration-200 ${
+                    isCreating 
+                      ? 'bg-blue-400 cursor-not-allowed' 
+                      : 'bg-blue-600 hover:bg-blue-700'
+                  }`}
+                >
+                  {isCreating ? 'Creating...' : 'Create User'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
