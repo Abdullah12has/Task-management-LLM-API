@@ -203,12 +203,12 @@ export default function UserGrid() {
                   >
                     View Profile
                   </a>
-                  <a 
+                  {/* <a 
                     href={`/users/${user.user_id}/edit`} 
                     className="w-full text-center py-2 text-sm text-gray-600 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-neutral-700 border-l border-gray-200 dark:border-gray-700"
                   >
                     Edit
-                  </a>
+                  </a> */}
                 </div>
               </div>
             ))}
